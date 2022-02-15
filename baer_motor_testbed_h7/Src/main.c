@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "../lan9252/lan9252.h"
 
 /* USER CODE END Includes */
 
@@ -31,6 +32,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+PROCBUFFER_OUT 	BufferOut;
+PROCBUFFER_IN 	BufferIn;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,7 +55,10 @@ TIM_HandleTypeDef htim5;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+spiCTX ethercat_slave;
 
+
+// for time 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -110,6 +116,14 @@ int main(void)
   MX_TIM5_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+	// 1. init lan9252
+	ethercat_slave.spi = &hspi1;
+	ethercat_slave.uart = &huart2;
+	ethercat_slave.bIn = &BufferIn;
+	ethercat_slave.bOut = &BufferOut;
+	HAL_Delay(10);
+	init9252(&ethercat_slave);
+	HAL_Delay(10);
 
   /* USER CODE END 2 */
 
@@ -120,6 +134,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  HAL_Delay(10);
+	  main_task(&ethercat_slave);
+	  BufferIn.Cust.motor_status = 1;
   }
   /* USER CODE END 3 */
 }
@@ -544,6 +561,13 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim->Instance == TIM5)
+	{
+		
+	}
+}
 
 /* USER CODE END 4 */
 
