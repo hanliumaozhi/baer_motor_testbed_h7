@@ -5,10 +5,10 @@
 #include <string.h>
 #include "stm32h7xx_hal.h"
 
-#define CUST_BYTE_NUM_OUT	28
-#define CUST_BYTE_NUM_IN	36
-#define TOT_BYTE_NUM_ROUND_OUT	28
-#define TOT_BYTE_NUM_ROUND_IN	36
+#define CUST_BYTE_NUM_OUT	36
+#define CUST_BYTE_NUM_IN	44
+#define TOT_BYTE_NUM_ROUND_OUT	36
+#define TOT_BYTE_NUM_ROUND_IN	44
 
 
 #define SPI_TIMEOUT_MAX				0x1000
@@ -78,13 +78,14 @@ typedef union												//---- output buffer ----
 	uint8_t  Byte[TOT_BYTE_NUM_ROUND_OUT];
 	struct
 	{
-		uint32_t    control_word;
+		uint64_t    hs;
 		float       motor_position_des;
 		float       motor_velocity_des;
 		float       motor_torque_des;
 		float       motor_kp;
 		float       motor_kd;
 		float       load_velocity;
+		uint32_t    control_word;
 	}Cust;
 } PROCBUFFER_OUT;
 
@@ -94,7 +95,7 @@ typedef union												//---- input buffer ----
 	uint8_t  Byte[TOT_BYTE_NUM_ROUND_IN];
 	struct
 	{
-		uint32_t    motor_status;
+		uint64_t    hs;
 		float       motor_position_act;
 		float       motor_velocity_act;
 		float       motor_torque_act;
@@ -103,6 +104,7 @@ typedef union												//---- input buffer ----
 		float       load_current;
 		uint32_t    can1_error_counter;
 		uint32_t    can2_error_counter;
+		uint32_t    motor_status;
 	}Cust;
 } PROCBUFFER_IN;
 

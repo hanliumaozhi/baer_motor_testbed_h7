@@ -73,6 +73,84 @@ static void MX_TIM5_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
+void delay_us(uint16_t us)
+{
+	__HAL_TIM_SET_COUNTER(&htim4, 0); 
+	while (__HAL_TIM_GET_COUNTER(&htim4) < us);
+}
+
+// load which work in velocity mode
+FDCAN_TxHeaderTypeDef amber_joint_tx;
+FDCAN_RxHeaderTypeDef amber_joint_rx;
+uint8_t amber_joint_data[8];
+uint8_t amber_joint_rx_data[8];
+
+double load_position_;
+double load_velocity_;
+double load_current_;
+
+uint32_t load_status_;
+
+void load_power_up(FDCAN_TxHeaderTypeDef* joint_tx, uint8_t* data_buffer)
+{
+	joint_tx->DataLength = FDCAN_DLC_BYTES_2;
+	data_buffer[0] = 0x20;
+	data_buffer[1] = 0x01;
+}
+
+void load_velocity_mode(FDCAN_TxHeaderTypeDef* joint_tx, uint8_t* data_buffer)
+{
+	
+	joint_tx->DataLength = FDCAN_DLC_BYTES_2;
+	data_buffer[0] = 0x20;
+	data_buffer[1] = 0x03;
+}
+
+void load_power_off(FDCAN_TxHeaderTypeDef* joint_tx, uint8_t* data_buffer)
+{
+	joint_tx->DataLength = FDCAN_DLC_BYTES_2;
+	data_buffer[0] = 0x20;
+	data_buffer[1] = 0x00;
+}
+
+union Byte2 {
+	int16_t d_data;
+	uint8_t buffer[2]; 
+};
+
+void load_pack_velocity_msg(FDCAN_TxHeaderTypeDef* joint_tx, uint8_t* data_buffer, double speed)
+{
+	joint_tx->DataLength = FDCAN_DLC_BYTES_3;
+	data_buffer[0] = 0x41;
+	union Byte2 byte_2;
+	
+	double velocity_des = speed * 57.2958;
+	
+	byte_2.d_data = (int16_t)velocity_des;
+	
+	data_buffer[1] = byte_2.buffer[1];
+	data_buffer[2] = byte_2.buffer[0];
+}
+
+void load_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
+{
+	int id = joint_rx->Identifier - 0x40;
+	
+	if (id == 1)
+	{
+		int16_t p_int = (data_buffer[1] << 8) | data_buffer[2];
+		int16_t v_int = (data_buffer[3] << 8) |  data_buffer[4];
+		int16_t i_int =  (data_buffer[5] << 8) |  data_buffer[6];
+		
+		load_position_ = (p_int / 128.0f) / 57.2958f;
+		load_velocity_ = (v_int * 1.0f) / 57.2958f;
+		load_current_ = i_int / 256.0f; 
+		
+		load_status_ = (data_buffer[7] << 8) | data_buffer[0];
+	}
+
+}
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -116,6 +194,16 @@ int main(void)
   MX_TIM5_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+	
+	HAL_FDCAN_Start(&hfdcan1);
+	HAL_FDCAN_Start(&hfdcan2);
+	HAL_Delay(10);
+	
+	HAL_TIM_Base_Start(&htim2);
+	
+	HAL_TIM_Base_Start(&htim4);
+	
+	HAL_Delay(10);
 	// 1. init lan9252
 	ethercat_slave.spi = &hspi1;
 	ethercat_slave.uart = &huart2;
@@ -124,6 +212,20 @@ int main(void)
 	HAL_Delay(10);
 	init9252(&ethercat_slave);
 	HAL_Delay(10);
+	
+	HAL_TIM_Base_Start_IT(&htim5);
+	
+	// 2. init load motor var
+	amber_joint_tx.Identifier = 0x11;
+	amber_joint_tx.IdType = FDCAN_STANDARD_ID;
+	amber_joint_tx.TxFrameType = FDCAN_DATA_FRAME;
+	amber_joint_tx.DataLength = FDCAN_DLC_BYTES_8;
+	amber_joint_tx.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+	amber_joint_tx.BitRateSwitch = FDCAN_BRS_OFF;
+	amber_joint_tx.FDFormat = FDCAN_CLASSIC_CAN;
+	amber_joint_tx.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+	amber_joint_tx.MessageMarker = 0;
+	
 
   /* USER CODE END 2 */
 
@@ -134,9 +236,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  HAL_Delay(10);
-	  main_task(&ethercat_slave);
-	  BufferIn.Cust.motor_status = 1;
+	  if (HAL_FDCAN_GetRxMessage(&hfdcan2, FDCAN_RX_FIFO0, &amber_joint_rx, amber_joint_rx_data) == HAL_OK)
+	  {
+		  load_unpack_msg(&amber_joint_rx, amber_joint_rx_data);
+	  }
+	  delay_us(10);
   }
   /* USER CODE END 3 */
 }
@@ -561,10 +665,149 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+uint64_t hs_ = 0;
+uint32_t can1_error_counter = 0;
+uint32_t can2_error_counter = 0;
+
+uint32_t control_word;
+
+int is_load_enable = 0;
+int is_motor_enable = 0;
+
+int load_init_state = 0;
+
+int motor_init_state = 0;
+
+void control()
+{
+	int is_init = 0;
+	if ((control_word & 2) == 1 && is_load_enable == 0)
+	{
+		can2_error_counter = 0;
+		load_power_up(&amber_joint_tx, amber_joint_data);
+		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &amber_joint_tx, amber_joint_data) != HAL_OK)
+		{
+			can2_error_counter += 1;
+		}
+		is_load_enable = 1;
+		load_init_state = 1;
+		is_init = 1;
+	}
+	
+	if ((control_word & 1) == 1 && is_motor_enable == 0)
+	{
+		can1_error_counter = 0;
+		/*load_power_up(&amber_joint_tx, amber_joint_data);
+		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &amber_joint_tx, amber_joint_data) != HAL_OK)
+		{
+			can2_error_counter += 1;
+		}*/
+		is_motor_enable = 1;
+		motor_init_state = 1;
+		is_init = 1;
+	}
+	if (is_init)
+	{
+		is_init = 0;
+		return; 
+	}
+	
+	if (control_word == 0 && (is_motor_enable == 1 || is_load_enable == 1))
+	{
+		if (is_load_enable == 1)
+		{
+			load_power_off(&amber_joint_tx, amber_joint_data);
+			if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &amber_joint_tx, amber_joint_data) != HAL_OK)
+			{
+				can2_error_counter += 1;
+			}
+		}
+		
+	}
+	
+	if (load_init_state == 1)
+	{
+		load_velocity_mode(&amber_joint_tx, amber_joint_data);
+		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &amber_joint_tx, amber_joint_data) != HAL_OK)
+		{
+			can2_error_counter += 1;
+		}
+		load_init_state = 0;
+	}
+	
+	if (is_load_enable)
+	{
+		load_pack_velocity_msg(&amber_joint_tx, amber_joint_data, BufferOut.Cust.load_velocity);
+		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &amber_joint_tx, amber_joint_data) != HAL_OK)
+		{
+			can2_error_counter += 1;
+		}
+	}
+	
+}
+
+void pack_ethercat_data()
+{
+	BufferIn.Cust.hs = hs_;
+	BufferIn.Cust.load_current = hs_;
+	BufferIn.Cust.load_velocity = hs_;
+	BufferIn.Cust.load_status = hs_;
+	BufferIn.Cust.can2_error_counter = hs_;
+	BufferIn.Cust.can1_error_counter = hs_;
+}
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim->Instance == TIM5)
 	{
+		main_task(&ethercat_slave);
+		uint64_t tmp_hs_ = BufferOut.Cust.hs;
+		hs_ = BufferOut.Cust.hs;
+		if (tmp_hs_ > hs_ || tmp_hs_ == 1)
+		{
+			control_word = BufferOut.Cust.control_word;
+			
+			control();
+			
+			hs_ = tmp_hs_;
+			
+			// pack data
+			/*BufferIn.Cust.hs = hs_;
+			BufferIn.Cust.load_current = load_current_;
+			BufferIn.Cust.load_velocity = load_velocity_;
+			BufferIn.Cust.load_status = load_status_;
+			BufferIn.Cust.can2_error_counter = can2_error_counter;
+			BufferIn.Cust.can1_error_counter = can1_error_counter;*/
+			// error check;
+			FDCAN_ErrorCountersTypeDef ErrorCounters;
+			uint8_t error_counter1;
+			uint8_t error_counter2;
+			uint8_t error_counter3;
+			uint8_t error_counter4;
+			HAL_FDCAN_GetErrorCounters(&hfdcan1, &ErrorCounters);
+			error_counter1 = (uint8_t)ErrorCounters.RxErrorCnt;
+			error_counter2 = (uint8_t)ErrorCounters.TxErrorCnt;
+			HAL_FDCAN_GetErrorCounters(&hfdcan2, &ErrorCounters);
+			error_counter3 = (uint8_t)ErrorCounters.RxErrorCnt;
+			error_counter4 = (uint8_t)ErrorCounters.TxErrorCnt;
+				
+			if (hs_ > 100)
+			{
+				if (error_counter1 > 0 || error_counter2 > 0)
+				{
+					can1_error_counter += 1;
+					HAL_FDCAN_Stop(&hfdcan1);
+					HAL_FDCAN_Start(&hfdcan1);
+					
+				}
+				if (error_counter3 > 0 || error_counter4 > 0) 
+				{
+					can2_error_counter += 1;
+					HAL_FDCAN_Stop(&hfdcan2);
+					HAL_FDCAN_Start(&hfdcan2);
+				}
+			}
+		}
 		
 	}
 }
