@@ -664,18 +664,16 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-volatile uint64_t hs_ = 0;
-volatile uint32_t can1_error_counter = 0;
-volatile uint32_t can2_error_counter = 0;
+uint64_t hs_ = 0;
+uint16_t can1_error_counter = 0;
+uint16_t can2_error_counter = 0;
 
-volatile uint32_t control_word;
-
-volatile int is_load_enable = 0;
-volatile int is_motor_enable = 0;
-
-volatile int load_init_state = 0;
-
-volatile int motor_init_state = 0;
+uint32_t control_word;
+int is_load_enable = 0;
+int is_motor_enable = 0;
+int load_init_state = 0;
+int motor_init_state = 0;
+uint32_t can_last_error_code = 0; 
 
 void control()
 {
@@ -724,7 +722,6 @@ void control()
 		}
 		is_motor_enable = 0;
 		is_load_enable = 0;
-		
 	}
 	
 	if (load_init_state == 1)
@@ -754,8 +751,9 @@ void pack_ethercat_data()
 	BufferIn.Cust.load_current = load_current_;
 	BufferIn.Cust.load_velocity = load_velocity_;
 	BufferIn.Cust.load_status = load_status_;
-	BufferIn.Cust.can2_error_counter = can1_error_counter;
-	BufferIn.Cust.can1_error_counter = can2_error_counter;
+	
+	BufferIn.Cust.can1_error_counter = can_last_error_code;
+	BufferIn.Cust.can2_error_counter = (can1_error_counter<< 16) | (can2_error_counter & 0xffff);
 	BufferIn.Cust.motor_status = BufferOut.Cust.control_word;
 }
 
@@ -788,21 +786,26 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			HAL_FDCAN_GetErrorCounters(&hfdcan2, &ErrorCounters);
 			error_counter3 = (uint8_t)ErrorCounters.RxErrorCnt;
 			error_counter4 = (uint8_t)ErrorCounters.TxErrorCnt;
+			
+			
+			uint32_t can1_lec = READ_REG(hfdcan1.Instance->PSR);
+			uint32_t can2_lec = READ_REG(hfdcan2.Instance->PSR);
+				
+			can1_lec = can1_lec & 0x0007;
+			can2_lec = can2_lec & 0x0007;
+
+			can_last_error_code = (can2_lec << 8) | can1_lec;
 				
 			if (hs_ > 100)
 			{
 				if (error_counter1 > 0 || error_counter2 > 0)
 				{
 					can1_error_counter += 1;
-					HAL_FDCAN_Stop(&hfdcan1);
-					HAL_FDCAN_Start(&hfdcan1);
 					
 				}
 				if (error_counter3 > 0 || error_counter4 > 0) 
 				{
 					can2_error_counter += 1;
-					HAL_FDCAN_Stop(&hfdcan2);
-					HAL_FDCAN_Start(&hfdcan2);
 				}
 			}
 		}
