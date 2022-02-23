@@ -154,6 +154,130 @@ void load_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 
 }
 
+// motor control func
+
+#define P_MIN (-12.5f)
+#define P_MAX (12.5f)
+#define V_MIN (-10.0f)
+#define V_MAX (10.0f)
+#define T_MIN (-50.0f)
+#define T_MAX (50.0f)
+#define KP_MIN (0.0f)     // N-m/rad
+#define KP_MAX (250.0f)
+#define KD_MIN (0.0f)     // N-m/rad/s
+#define KD_MAX (50.0f)
+
+#define LIMIT_MIN_MAX(x,min,max) (x) = (((x)<=(min))?(min):(((x)>=(max))?(max):(x)))
+
+float motor_position;
+float motor_velocity;
+float motor_torque;
+uint32_t motor_status;
+
+static uint16_t float_to_uint(float x, float x_min, float x_max, uint8_t bits)
+{
+	float span = x_max - x_min;
+	float offset = x_min;
+    
+	return (uint16_t)((x - offset)*((float)((1 << bits) - 1)) / span);
+}
+
+FDCAN_TxHeaderTypeDef motor_joint_tx;
+FDCAN_RxHeaderTypeDef motor_joint_rx;
+uint8_t motor_joint_data[8];
+uint8_t motor_joint_rx_data[8];
+
+void motor_pack_data(FDCAN_TxHeaderTypeDef* joint_tx, float f_p, float f_v, float f_kp, float f_kd, float f_t)
+{
+	joint_tx->DataLength = FDCAN_DLC_BYTES_8;
+	uint16_t p, v, kp, kd, t;
+    
+	LIMIT_MIN_MAX(f_p, P_MIN, P_MAX);
+	LIMIT_MIN_MAX(f_v, V_MIN, V_MAX);
+	LIMIT_MIN_MAX(f_kp, KP_MIN, KP_MAX);
+	LIMIT_MIN_MAX(f_kd, KD_MIN, KD_MAX);
+	LIMIT_MIN_MAX(f_t, T_MIN, T_MAX);
+    
+	p = float_to_uint(f_p, P_MIN, P_MAX, 16);            
+	v = float_to_uint(f_v, V_MIN, V_MAX, 12);
+	kp = float_to_uint(f_kp, KP_MIN, KP_MAX, 12);
+	kd = float_to_uint(f_kd, KD_MIN, KD_MAX, 12);
+	t = float_to_uint(f_t, T_MIN, T_MAX, 12);
+    
+	motor_joint_data[0] = p >> 8;
+	motor_joint_data[1] = p & 0xFF;
+	motor_joint_data[2] = v >> 4;
+	motor_joint_data[3] = ((v & 0xF) << 4) | (kp >> 8);
+	motor_joint_data[4] = kp & 0xFF;
+	motor_joint_data[5] = kd >> 4;
+	motor_joint_data[6] = ((kd & 0xF) << 4) | (t >> 8);
+	motor_joint_data[7] = t & 0xff; 
+}
+
+float uint_to_float(int x_int, float x_min, float x_max, int bits)
+{
+	/// converts unsigned int to float, given range and number of bit ///
+	float span = x_max - x_min;
+	float offset = x_min;
+	return ((float)x_int)*span / ((float)((1 << bits) - 1)) + offset;
+}
+
+void motor_enable(FDCAN_TxHeaderTypeDef* joint_tx, uint8_t* data_buffer)
+{
+	joint_tx->DataLength = FDCAN_DLC_BYTES_8;
+	data_buffer[0] = 0xff;
+	data_buffer[1] = 0xff;
+	data_buffer[2] = 0xff;
+	data_buffer[3] = 0xff;
+	data_buffer[4] = 0xff;
+	data_buffer[5] = 0xff;
+	data_buffer[6] = 0xff;
+	data_buffer[7] = 0xfc;
+}
+
+void motor_zero(FDCAN_TxHeaderTypeDef* joint_tx, uint8_t* data_buffer)
+{
+	joint_tx->DataLength = FDCAN_DLC_BYTES_8;
+	data_buffer[0] = 0xff;
+	data_buffer[1] = 0xff;
+	data_buffer[2] = 0xff;
+	data_buffer[3] = 0xff;
+	data_buffer[4] = 0xff;
+	data_buffer[5] = 0xff;
+	data_buffer[6] = 0xff;
+	data_buffer[7] = 0xfe;
+}
+
+void motor_disable(FDCAN_TxHeaderTypeDef* joint_tx, uint8_t* data_buffer)
+{
+	joint_tx->DataLength = FDCAN_DLC_BYTES_8;
+	data_buffer[0] = 0xff;
+	data_buffer[1] = 0xff;
+	data_buffer[2] = 0xff;
+	data_buffer[3] = 0xff;
+	data_buffer[4] = 0xff;
+	data_buffer[5] = 0xff;
+	data_buffer[6] = 0xff;
+	data_buffer[7] = 0xfd;
+}
+
+void motor_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
+{
+	int id, p_int=0x00, v_int=0x00, t_int=0x00;
+	id = data_buffer[0];
+	p_int = (data_buffer[1] << 8)| (0x00ff & data_buffer[2]);
+	v_int = (data_buffer[3] << 4) | ((0x00ff & data_buffer[4]) >> 4);
+	t_int = ((data_buffer[4] & 0xF) << 8) | (0x00ff&data_buffer[5]);
+	p_int &= 0x0000ffff; //16bit
+	v_int &= 0x00000fff; //12bit
+	t_int &= 0x00000fff; //12bit
+	
+	motor_position = uint_to_float(p_int,P_MIN,P_MAX,16);
+	motor_velocity = uint_to_float(v_int,V_MIN,V_MAX,12);
+	motor_torque = uint_to_float(t_int,T_MIN,T_MAX,12);
+	motor_status = ((data_buffer[6] << 8) | data_buffer[7]);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -204,6 +328,18 @@ int main(void)
 	amber_joint_tx.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
 	amber_joint_tx.MessageMarker = 0;
 	
+	//3. init motor var
+	
+	motor_joint_tx.Identifier = 1;
+	motor_joint_tx.IdType = FDCAN_STANDARD_ID;
+	motor_joint_tx.TxFrameType = FDCAN_DATA_FRAME;
+	motor_joint_tx.DataLength = FDCAN_DLC_BYTES_8;
+	motor_joint_tx.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+	motor_joint_tx.BitRateSwitch = FDCAN_BRS_OFF;
+	motor_joint_tx.FDFormat = FDCAN_CLASSIC_CAN;
+	motor_joint_tx.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+	motor_joint_tx.MessageMarker = 0;
+	
 	HAL_FDCAN_Start(&hfdcan1);
 	HAL_FDCAN_Start(&hfdcan2);
 	HAL_Delay(10);
@@ -237,6 +373,10 @@ int main(void)
 	  if (HAL_FDCAN_GetRxMessage(&hfdcan2, FDCAN_RX_FIFO0, &amber_joint_rx, amber_joint_rx_data) == HAL_OK)
 	  {
 		  load_unpack_msg(&amber_joint_rx, amber_joint_rx_data);
+	  }
+	  if (HAL_FDCAN_GetRxMessage(&hfdcan1, FDCAN_RX_FIFO0, &motor_joint_rx, motor_joint_rx_data) == HAL_OK)
+	  {
+		  motor_unpack_msg(&motor_joint_rx, motor_joint_rx_data);
 	  }
 	  delay_us(10);
   }
@@ -748,13 +888,19 @@ void control()
 void pack_ethercat_data()
 {
 	BufferIn.Cust.hs = hs_;
-	BufferIn.Cust.load_current = load_current_;
 	BufferIn.Cust.load_velocity = load_velocity_;
 	BufferIn.Cust.load_status = load_status_;
-	
 	BufferIn.Cust.can1_error_counter = can_last_error_code;
 	BufferIn.Cust.can2_error_counter = (can1_error_counter<< 16) | (can2_error_counter & 0xffff);
-	BufferIn.Cust.motor_status = BufferOut.Cust.control_word;
+	
+	// motor
+	BufferIn.Cust.motor_position_act = motor_position;
+	BufferIn.Cust.motor_velocity_act = motor_velocity;
+	BufferIn.Cust.motor_torque_act = motor_torque;
+	BufferIn.Cust.motor_status = motor_status;
+	
+	// we use load_current to
+	BufferIn.Cust.load_current = load_current_;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
