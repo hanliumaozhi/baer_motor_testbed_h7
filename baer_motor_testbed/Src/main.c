@@ -764,7 +764,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		pack_ethercat_data();
 		main_task(&ethercat_slave);
 		uint64_t tmp_hs_ = BufferOut.Cust.hs;
-		hs_ = BufferOut.Cust.hs;
 		if (tmp_hs_ > hs_ || tmp_hs_ == 1)
 		{
 			control_word = BufferOut.Cust.control_word;
