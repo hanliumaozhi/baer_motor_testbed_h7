@@ -261,6 +261,8 @@ void motor_disable(FDCAN_TxHeaderTypeDef* joint_tx, uint8_t* data_buffer)
 	data_buffer[7] = 0xfd;
 }
 
+uint64_t hs_ = 0;
+float msg_time_;
 void motor_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 {
 	int id, p_int=0x00, v_int=0x00, t_int=0x00;
@@ -275,7 +277,9 @@ void motor_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 	motor_position = uint_to_float(p_int,P_MIN,P_MAX,16);
 	motor_velocity = uint_to_float(v_int,V_MIN,V_MAX,12);
 	motor_torque = uint_to_float(t_int,T_MIN,T_MAX,12);
-	motor_status = ((data_buffer[6] << 8) | data_buffer[7]);
+	//motor_status = ((data_buffer[6] << 8) | data_buffer[7]);
+	
+	msg_time_ = (float)hs_;
 }
 
 /* USER CODE END 0 */
@@ -804,7 +808,6 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-uint64_t hs_ = 0;
 uint16_t can1_error_counter = 0;
 uint16_t can2_error_counter = 0;
 
@@ -835,18 +838,17 @@ void control()
 	if ((control_word & 1) == 1 && is_motor_enable == 0)
 	{
 		can1_error_counter = 0;
-		/*load_power_up(&amber_joint_tx, amber_joint_data);
-		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &amber_joint_tx, amber_joint_data) != HAL_OK)
+		motor_enable(&motor_joint_tx, motor_joint_data); 
+		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &motor_joint_tx, motor_joint_data) != HAL_OK)
 		{
-			can2_error_counter += 1;
-		}*/
+			can1_error_counter += 1;
+		}
 		is_motor_enable = 1;
 		motor_init_state = 1;
 		is_init = 1;
 	}
 	if (is_init)
 	{
-		is_init = 0;
 		return; 
 	}
 	
@@ -858,6 +860,14 @@ void control()
 			if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &amber_joint_tx, amber_joint_data) != HAL_OK)
 			{
 				can2_error_counter += 1;
+			}
+		}
+		if (is_motor_enable == 1)
+		{
+			motor_disable(&motor_joint_tx, motor_joint_data);
+			if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &motor_joint_tx, motor_joint_data) != HAL_OK)
+			{
+				can1_error_counter += 1;
 			}
 		}
 		is_motor_enable = 0;
@@ -874,12 +884,32 @@ void control()
 		load_init_state = 0;
 	}
 	
+	if (motor_init_state == 1)
+	{
+		motor_zero(&motor_joint_tx, motor_joint_data);
+		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &motor_joint_tx, motor_joint_data) != HAL_OK)
+		{
+			can1_error_counter += 1;
+		}
+		motor_init_state = 0;
+	}
+	
 	if (is_load_enable == 1)
 	{
 		load_pack_velocity_msg(&amber_joint_tx, amber_joint_data, BufferOut.Cust.load_velocity);
 		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &amber_joint_tx, amber_joint_data) != HAL_OK)
 		{
 			can2_error_counter += 1;
+		}
+	}
+	
+	if (is_motor_enable == 1)
+	{
+		motor_pack_data(&motor_joint_tx, BufferOut.Cust.motor_position_des, BufferOut.Cust.motor_velocity_des,
+			BufferOut.Cust.motor_kp, BufferOut.Cust.motor_kd, BufferOut.Cust.motor_torque_des);
+		if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &motor_joint_tx, motor_joint_data) != HAL_OK)
+		{
+			can1_error_counter += 1;
 		}
 	}
 	
@@ -900,7 +930,7 @@ void pack_ethercat_data()
 	BufferIn.Cust.motor_status = motor_status;
 	
 	// we use load_current to
-	BufferIn.Cust.load_current = load_current_;
+	BufferIn.Cust.load_current = msg_time_;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
