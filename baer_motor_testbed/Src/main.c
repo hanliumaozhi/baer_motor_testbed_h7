@@ -277,7 +277,7 @@ void motor_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 	motor_position = uint_to_float(p_int,P_MIN,P_MAX,16);
 	motor_velocity = uint_to_float(v_int,V_MIN,V_MAX,12);
 	motor_torque = uint_to_float(t_int,T_MIN,T_MAX,12);
-	//motor_status = ((data_buffer[6] << 8) | data_buffer[7]);
+	motor_status = ((data_buffer[6] << 8) | data_buffer[7]);
 	
 	msg_time_ = (float)hs_;
 }
