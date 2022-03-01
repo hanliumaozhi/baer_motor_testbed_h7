@@ -156,16 +156,18 @@ void load_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 
 // motor control func
 
-#define P_MIN (-12.5f)
-#define P_MAX (12.5f)
-#define V_MIN (-10.0f)
-#define V_MAX (10.0f)
-#define T_MIN (-50.0f)
-#define T_MAX (50.0f)
+#define P_MIN (-95.5f)
+#define P_MAX (95.5f)
+#define V_MIN (-45.0f)
+#define V_MAX (45.0f)
+#define T_MIN (-18.0f)
+#define T_MAX (18.0f)
+#define I_MIN (-40.0f)
+#define I_MAX (40.0f)
 #define KP_MIN (0.0f)     // N-m/rad
-#define KP_MAX (250.0f)
+#define KP_MAX (500.0f)
 #define KD_MIN (0.0f)     // N-m/rad/s
-#define KD_MAX (50.0f)
+#define KD_MAX (5.0f)
 
 #define LIMIT_MIN_MAX(x,min,max) (x) = (((x)<=(min))?(min):(((x)>=(max))?(max):(x)))
 
@@ -276,7 +278,7 @@ void motor_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 	
 	motor_position = uint_to_float(p_int,P_MIN,P_MAX,16);
 	motor_velocity = uint_to_float(v_int,V_MIN,V_MAX,12);
-	motor_torque = uint_to_float(t_int,T_MIN,T_MAX,12);
+	motor_torque = uint_to_float(t_int,I_MIN,I_MAX,12);
 	//motor_status = ((data_buffer[6] << 8) | data_buffer[7]);
 	
 	msg_time_ = (float)hs_;

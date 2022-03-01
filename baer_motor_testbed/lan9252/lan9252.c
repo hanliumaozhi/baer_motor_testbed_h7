@@ -57,6 +57,8 @@ void init9252(spiCTX* ctx) {
 	ctx->deviceInitiated = 0x1;
 }
 
+char debug_buffer[64] = { 0 };
+
 unsigned char main_task(spiCTX* ctx)
 {
 	bool WatchDog = true;
@@ -108,6 +110,8 @@ unsigned char main_task(spiCTX* ctx)
 	{
 		                                                         // and of the watchdog
 	  Status |= 0x80;                                          //
+		sprintf(debug_buffer, "watch dog \r\n");
+		HAL_UART_Transmit(ctx->uart, (uint8_t *)debug_buffer, sizeof(debug_buffer), HAL_MAX_DELAY);
 	}                                                         //
 	return Status;                                             //   
 }
