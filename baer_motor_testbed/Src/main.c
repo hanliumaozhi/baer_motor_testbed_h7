@@ -158,14 +158,14 @@ void load_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 
 #define P_MIN (-12.5f)
 #define P_MAX (12.5f)
-#define V_MIN (-10.0f)
-#define V_MAX (10.0f)
-#define T_MIN (-50.0f)
-#define T_MAX (50.0f)
+#define V_MIN (-25.0f)
+#define V_MAX (25.0f)
+#define T_MIN (-45.0f)
+#define T_MAX (45.0f)
 #define KP_MIN (0.0f)     // N-m/rad
-#define KP_MAX (250.0f)
+#define KP_MAX (500.0f)
 #define KD_MIN (0.0f)     // N-m/rad/s
-#define KD_MAX (50.0f)
+#define KD_MAX (5.0f)
 
 #define LIMIT_MIN_MAX(x,min,max) (x) = (((x)<=(min))?(min):(((x)>=(max))?(max):(x)))
 
@@ -266,7 +266,7 @@ float msg_time_;
 void motor_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 {
 	int id, p_int=0x00, v_int=0x00, t_int=0x00;
-	id = data_buffer[0];
+	id = data_buffer[0] & 0xf;
 	p_int = (data_buffer[1] << 8)| (0x00ff & data_buffer[2]);
 	v_int = (data_buffer[3] << 4) | ((0x00ff & data_buffer[4]) >> 4);
 	t_int = ((data_buffer[4] & 0xF) << 8) | (0x00ff&data_buffer[5]);
