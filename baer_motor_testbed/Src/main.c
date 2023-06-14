@@ -158,14 +158,14 @@ void load_unpack_msg(FDCAN_RxHeaderTypeDef* joint_rx, uint8_t* data_buffer)
 
 #define P_MIN (-12.5f)
 #define P_MAX (12.5f)
-#define V_MIN (-10.0f)
-#define V_MAX (10.0f)
-#define T_MIN (-50.0f)
-#define T_MAX (50.0f)
+#define V_MIN (-65.0f)
+#define V_MAX (65.0f)
+#define T_MIN (-60.0f)
+#define T_MAX (60.0f)
 #define KP_MIN (0.0f)     // N-m/rad
-#define KP_MAX (250.0f)
+#define KP_MAX (500.0f)
 #define KD_MIN (0.0f)     // N-m/rad/s
-#define KD_MAX (50.0f)
+#define KD_MAX (5.0f)
 
 #define LIMIT_MIN_MAX(x,min,max) (x) = (((x)<=(min))?(min):(((x)>=(max))?(max):(x)))
 
